@@ -1,187 +1,152 @@
 require("dotenv").config();
-const expenseDB = []
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const readline = require("node:readline/promises");
-const { stdin: input, stdout: output } = require("node:process");
 
-// Initialize readline
-const rl = readline.createInterface({ input, output });
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }, // Allow frontend connections
+});
 
-// Initialize Gemini
+// Gemini setup
 const genAI = new GoogleGenerativeAI(
   process.env.GEMINI_API_KEY || "AIzaSyAeAmRopF3WW7JlXi9ua5n8Kkpji75rP1E"
 );
 
-// Local weather function
+const expenseDB = [];
+
+// Tools
 function getWetherTemp(city = "") {
-  const lowerCaseCity = city.toLowerCase();
-  if (lowerCaseCity === "patiala") return "10°C";
-  if (lowerCaseCity === "amritsar") return "12°C";
-  if (lowerCaseCity === "mohali") return "11°C";
-  if (lowerCaseCity === "delhi") return "15°C";
-  if (lowerCaseCity === "banglore" || lowerCaseCity === "bengaluru")
-    return "25°C";
+  const c = city.toLowerCase();
+  if (c === "patiala") return "10°C";
+  if (c === "amritsar") return "12°C";
+  if (c === "mohali") return "11°C";
+  if (c === "delhi") return "15°C";
+  if (c === "bangalore" || c === "bengaluru") return "25°C";
   return "N/A";
 }
 
-// Expense function
 function getTotalExpense({ from, to }) {
-  console.log(`Fetching expenses from ${from} to ${to}`);
-
-  const expense = expenseDB.reduce((acc,item)=>{
-      return (acc+item.amount)
-  },0)
-  return expense;
+  return expenseDB.reduce((acc, item) => acc + Number(item.amount), 0);
 }
 
-// add expense function 
-
-
 function addExpense({ name, amount }) {
-  expenseDB.push({ name, amount });
+  expenseDB.push({ name, amount: Number(amount) });
   return "Expense added.";
 }
 
-async function main() {
+// Create Gemini model with tools
+function createChat(modelName = "gemini-1.5-flash") {
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: modelName,
     systemInstruction: {
       parts: [
         {
           text:
-            "You are an AI assistant named Vishu. When asked about your identity, " +
-            "always respond with: 'I am Dovetail assistant, how can I help you?' " +
-            "For weather queries, use the getWetherTemp function. For expense queries, use getTotalExpense. " +
-            `Current dateTime: ${new Date().toUTCString()}`,
+            "You are an AI assistant named Vishu. Say 'I am Dovetail assistant, how can I help you?' when asked about your identity. " +
+            "Use tools for weather or expenses. Current date: " + new Date().toUTCString(),
         },
       ],
-      role: "system",
     },
     tools: [
       {
         functionDeclarations: [
           {
             name: "getWetherTemp",
-            description: "Gets the current weather temperature for a given city",
             parameters: {
               type: "OBJECT",
               properties: {
-                city: {
-                  type: "STRING",
-                  description: "The name of the city (e.g., 'Patiala', 'Delhi')",
-                },
+                city: { type: "STRING", description: "City name" },
               },
               required: ["city"],
             },
           },
           {
             name: "getTotalExpense",
-            description: "Gets total expenses between dates",
             parameters: {
               type: "OBJECT",
               properties: {
-                from: {
-                  type: "STRING",
-                  description: "Start date (YYYY-MM-DD)",
-                },
-                to: {
-                  type: "STRING",
-                  description: "End date (YYYY-MM-DD)",
-                },
+                from: { type: "STRING", description: "Start date" },
+                to: { type: "STRING", description: "End date" },
               },
               required: ["from", "to"],
             },
           },
-        {
-  name: "addExpense",
-  description: "Add new expense entry to the expense database",
-  parameters: {
-    type: "object",
-    properties: {
-      name: {
-        type: "string",
-        description: "Name of the expense, e.g., 'Bought an iPhone'",
-      },
-      amount: {
-        type: "string",
-        description: "Amount of the expense",
-      },
-    },
-    required: ["name", "amount"],
-  },
-}
-
+          {
+            name: "addExpense",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                name: { type: "STRING", description: "Expense name" },
+                amount: { type: "STRING", description: "Expense amount" },
+              },
+              required: ["name", "amount"],
+            },
+          },
         ],
       },
     ],
   });
 
-  const chat = model.startChat();
+  return model.startChat();
+}
 
-  while (true) {
-    const userInput = await rl.question("USER: ");
-    if (userInput.toLowerCase() === "bye") {
-      console.log("Assistant: Goodbye! Have a great day.");
-      break;
-    }
+// Handle socket connections
+io.on("connection", (socket) => {
+  console.log(`🔌 User connected: ${socket.id}`);
 
+  let chatSession = createChat(); // Create session per user
+
+  socket.on("userMessage", async (msg) => {
     try {
-      const result = await chat.sendMessage(userInput);
+      const result = await chatSession.sendMessage(msg);
       const response = result.response;
       const functionCalls = response.functionCalls();
 
-      if (functionCalls && functionCalls.length > 0) {
-        console.log("Gemini requested to call functions:");
-
+      if (functionCalls?.length > 0) {
         const functionResponses = [];
 
         for (const call of functionCalls) {
-          console.log(`- Function name: ${call.name}`);
-          console.log(`- Arguments: ${JSON.stringify(call.args)}`);
+          const { name, args } = call;
 
-          if (call.name === "getWetherTemp") {
-            const temperature = getWetherTemp(call.args.city);
+          if (name === "getWetherTemp") {
+            const temperature = getWetherTemp(args.city);
             functionResponses.push({
-              functionResponse: {
-                name: "getWetherTemp",
-                response: { temperature },
-              },
+              functionResponse: { name, response: { temperature } },
             });
-          } else if (call.name === "getTotalExpense") {
-            const total = getTotalExpense(call.args);
+          } else if (name === "getTotalExpense") {
+            const total = getTotalExpense(args);
             functionResponses.push({
-              functionResponse: {
-                name: "getTotalExpense",
-                response: { total },
-              },
+              functionResponse: { name, response: { total } },
             });
-        } else if (call.name === "addExpense") {
-  const expense = addExpense(call.args);
-  functionResponses.push({
-    functionResponse: {
-      name: "addExpense",
-      response: { expense },
-    }
-  });
-}
- else {
-            console.log("Unknown function requested by Gemini:", call.name);
+          } else if (name === "addExpense") {
+            const result = addExpense(args);
+            functionResponses.push({
+              functionResponse: { name, response: { result } },
+            });
           }
         }
 
-        // Send all function responses at once
-        const toolResult = await chat.sendMessage(functionResponses);
-        console.log("Assistant:", toolResult.response.text());
+        const toolResult = await chatSession.sendMessage(functionResponses);
+        socket.emit("botMessage", toolResult.response.text());
       } else {
-        // Direct Gemini response (no tool usage)
-        console.log("Assistant:", response.text());
+        socket.emit("botMessage", response.text());
       }
     } catch (err) {
-      console.error("Error during chat:", err);
+      console.error("Gemini error:", err);
+      socket.emit("botMessage", "⚠️ I'm facing issues. Try again later.");
     }
-  }
+  });
 
-  rl.close();
-}
+  socket.on("disconnect", () => {
+    console.log(`❌ Disconnected: ${socket.id}`);
+  });
+});
 
-main().catch(console.error);
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`✅ Socket server running at http://localhost:${PORT}`);
+});

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dovetail Chat</title>
+</head>
+<body>
+  <h2>Dovetail Assistant </h2>
+  <div id="chat"></div>
+  <input id="msgInput" placeholder="Type message..." />
+  <button onclick="send()">Send</button>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const socket = io("http://localhost:3000");
+    const chat = document.getElementById("chat");
+
+    socket.on("botMessage", (msg) => {
+      chat.innerHTML += `<div><b>Bot:</b> ${msg}</div>`;
+    });
+
+    function send() {
+      const input = document.getElementById("msgInput");
+      const msg = input.value;
+      input.value = "";
+      chat.innerHTML += `<div><b>You:</b> ${msg}</div>`;
+      socket.emit("userMessage", msg);
+    }
+  </script>
+</body>
+</html>
