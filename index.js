@@ -97,12 +97,14 @@ function createChat(modelName = "gemini-1.5-flash") {
 io.on("connection", (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
-  let chatSession = createChat(); // Create session per user
+  let chatSession = createChat(); // Create session per usern
 
   socket.on("userMessage", async (msg) => {
     try {
-      const result = await chatSession.sendMessage(msg);
+      // console.log(">>>>>>>>>>>>first message",msg)
+      const result = await chatSession.sendMessage(msg.toString());
       const response = result.response;
+      // console.log(">>>>>>>>>>>>first response",response)
       const functionCalls = response.functionCalls();
 
       if (functionCalls?.length > 0) {
