@@ -147,6 +147,10 @@ io.on("connection", (socket) => {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
+// Example route
+app.get('/', (req, res) => {
+  res.send('Hello from Express!');
+});
 server.listen(PORT, () => {
   console.log(`✅ Socket server running at http://localhost:${PORT}`);
 });
