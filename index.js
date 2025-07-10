@@ -12,7 +12,7 @@ const io = new Server(server, {
 
 // Gemini setup
 const genAI = new GoogleGenerativeAI(
-  process.env.GEMINI_API_KEY || "AIzaSyAeAmRopF3WW7JlXi9ua5n8Kkpji75rP1E"
+  process.env.GEMINI_API_KEY || "AIzaSyDLWf3BMOhqHl5QzsaI9-eimfRmIZgtBPg"
 );
 
 const expenseDB = [];
