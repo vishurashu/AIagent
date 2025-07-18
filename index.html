@@ -3,29 +3,108 @@
 <head>
   <meta charset="UTF-8">
   <title>Dovetail Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    #chat {
+      height: 400px;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin-bottom: 10px;
+      overflow-y: auto;
+    }
+    #msgInput {
+      width: calc(100% - 120px);
+      padding: 8px;
+      margin-right: 10px;
+    }
+    .upload-container {
+      margin: 10px 0;
+      display: flex;
+      align-items: center;
+    }
+    #pdfStatus {
+      margin-left: 10px;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
 </head>
 <body>
-  <h2>Dovetail Assistant </h2>
+  <h2>Dovetail Assistant</h2>
+  
+  <div class="upload-container">
+    <input type="file" id="pdfUpload" accept=".pdf" />
+    <span id="pdfStatus">No PDF uploaded</span>
+  </div>
+  
   <div id="chat"></div>
-  <input id="msgInput" placeholder="Type message..." />
-  <button onclick="send()">Send</button>
+  
+  <div>
+    <input id="msgInput" placeholder="Type message..." />
+    <button onclick="send()">Send</button>
+  </div>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const socket = io("http://localhost:3000");
     const chat = document.getElementById("chat");
+    const pdfUpload = document.getElementById("pdfUpload");
+    const pdfStatus = document.getElementById("pdfStatus");
 
+    // Handle PDF upload
+    pdfUpload.addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (file && file.type === "application/pdf") {
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+          const buffer = new Uint8Array(e.target.result);
+          pdfStatus.textContent = "Uploading hospital document...";
+          
+          // Send PDF to server
+          socket.emit("uploadPDF", {
+            name: file.name,
+            buffer: Array.from(buffer)
+          });
+        };
+        
+        reader.readAsArrayBuffer(file);
+      } else {
+        pdfStatus.textContent = "Please select a valid PDF file";
+      }
+    });
+
+    // Socket listeners
     socket.on("botMessage", (msg) => {
-      chat.innerHTML += `<div><b>Bot:</b> ${msg}</div>`;
+      chat.innerHTML += `<div class="bot-msg"><b>Bot:</b> ${msg}</div>`;
+      chat.scrollTop = chat.scrollHeight;
+    });
+
+    socket.on("pdfStatus", (status) => {
+      pdfStatus.textContent = status;
     });
 
     function send() {
       const input = document.getElementById("msgInput");
-      const msg = input.value;
-      input.value = "";
-      chat.innerHTML += `<div><b>You:</b> ${msg}</div>`;
-      socket.emit("userMessage", msg);
+      const msg = input.value.trim();
+      
+      if (msg) {
+        input.value = "";
+        chat.innerHTML += `<div class="user-msg"><b>You:</b> ${msg}</div>`;
+        chat.scrollTop = chat.scrollHeight;
+        socket.emit("userMessage", msg);
+      }
     }
+
+    // Enable Enter key to send messages
+    document.getElementById("msgInput").addEventListener("keypress", (e) => {
+      if (e.key === "Enter") send();
+    });
   </script>
 </body>
 </html>
