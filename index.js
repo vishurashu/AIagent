@@ -6,12 +6,19 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParse = require("pdf-parse");
 const multer = require("multer");
 const path = require("path");
+const cors = require("cors")
 const fs = require("fs");
 const { connectDB } = require("./config/dbConnection");
 const Pdf = require("./model/pdf");
 const PdfChunk = require("./model/PdfChunk");
 
 const app = express();
+app.use(cors({
+  origin: '*',
+  credentials: true,
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Uploads directory
 const uploadDir = path.join(process.cwd(), "uploads");
