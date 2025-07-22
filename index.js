@@ -94,7 +94,7 @@ function createChat(modelName = "gemini-1.5-flash") {
 io.on("connection", (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
   let chatSession = createChat();
-
+  socket.emit("botMessage", "👋 Welcome to Dove AI! How can I help you?");
  socket.on("userMessage", async (msg) => {
   try {
     const embedModel = genAI.getGenerativeModel({ model: "embedding-001" });
