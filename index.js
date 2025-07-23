@@ -71,6 +71,12 @@ function cosineSimilarity(a, b) {
   if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
+function makeLinksClickable(text) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" style="color:#007bff; text-decoration:underline;">${url}</a>`;
+  });
+}
 
 // Create Gemini chat model
 function createChat(modelName = "gemini-1.5-flash") {
@@ -178,11 +184,19 @@ User Question: ${msg}
 `;
 
 
-      const result = await chatSession.sendMessage(prompt); // ✅ FIXED
-      socket.emit("botMessage", result.response.text());
+      const result = await chatSession.sendMessage(prompt);
+let botReply = result.response.text();
+
+// Make all URLs clickable
+botReply = botReply.replace(
+  /(https?:\/\/[^\s]+)/g,
+  '<a href="$1" target="_blank" style="color:#007bff; text-decoration:underline;">$1</a>'
+);
+
+socket.emit("botMessage", botReply);
     } catch (err) {
       console.error("Chat error:", err);
-      socket.emit("botMessage", "⚠️ Error processing your request.");
+      socket.emit("botMessage", "processing your request.");
     }
   });
 
