@@ -87,6 +87,7 @@ Here is some company information to keep in mind:
 - Pourav Araro is the CEO of Dovetail.
 - Rahul Kashyap is the General Manager of Dovetail.
 Only use these titles and spellings when asked about them.
+- Rahul Kashyap is the General Manager.
 
 Today is: ${new Date().toUTCString()}
           `,
