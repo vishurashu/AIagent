@@ -6,12 +6,21 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParse = require("pdf-parse");
 const multer = require("multer");
 const path = require("path");
+const cors = require("cors");
 const fs = require("fs");
 const { connectDB } = require("./config/dbConnection");
 const Pdf = require("./model/pdf");
 const PdfChunk = require("./model/PdfChunk");
 
 const app = express();
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+  })
+);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Uploads directory
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -62,6 +71,12 @@ function cosineSimilarity(a, b) {
   if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
+function makeLinksClickable(text) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" style="color:#007bff; text-decoration:underline;">${url}</a>`;
+  });
+}
 
 // Create Gemini chat model
 function createChat(modelName = "gemini-1.5-flash") {
@@ -70,80 +85,120 @@ function createChat(modelName = "gemini-1.5-flash") {
     systemInstruction: {
       parts: [
         {
-          text:
-            "You are an AI assistant named Vishu. Say 'I am Dovetail assistant, how can I help you?' when asked about your identity. " +
-            "Use tools for weather or expenses. Current date: " +
-            new Date().toUTCString(),
+          text: `
+You are an AI assistant named Vishu, working for Dovetail.
+If asked about your identity, say: "I am Dovetail Ai, how can I help you?"
+
+Here is some company information to keep in mind:
+- Pourav Araro is the CEO of Dovetail.
+- Rahul Kashyap is the General Manager of Dovetail.
+Only use these titles and spellings when asked about them.
+- Rahul Kashyap is the General Manager.
+
+Today is: ${new Date().toUTCString()}
+          `,
         },
       ],
     },
-    // inside below
   });
 
   return model.startChat();
 }
 
+
 // WebSocket setup
 io.on("connection", (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
   let chatSession = createChat();
+  socket.emit("botMessage", "👋 Welcome to Dovetail Ai! How can I help you?");
+  socket.on("userMessage", async (msg) => {
+    try {
+      const embedModel = genAI.getGenerativeModel({ model: "embedding-001" });
+      const embedResult = await embedModel.embedContent({
+        content: { parts: [{ text: msg }] },
+        taskType: "retrieval_query",
+      });
+      const userVector = embedResult.embedding.values;
 
- socket.on("userMessage", async (msg) => {
-  try {
-    const embedModel = genAI.getGenerativeModel({ model: "embedding-001" });
-    const embedResult = await embedModel.embedContent({
-      content: { parts: [{ text: msg }] },
-      taskType: "retrieval_query",
-    });
-    const userVector = embedResult.embedding.values;
+      const chunks = await PdfChunk.findAll({});
 
-    const chunks = await PdfChunk.findAll({});
-
-    if (chunks.length === 0) {
-      socket.emit("botMessage", "I couldn't find any uploaded documents. Please upload a PDF first.");
-      return;
-    }
-
-    const scored = [];
-    for (const chunk of chunks) {
-      try {
-        const bufferData = chunk.embedding;
-        const floatArray = new Float32Array(
-          bufferData.buffer.slice(
-            bufferData.byteOffset,
-            bufferData.byteOffset + bufferData.byteLength
-          )
+      if (chunks.length === 0) {
+        socket.emit(
+          "botMessage",
+          "I couldn't find any uploaded documents. Please upload a PDF first."
         );
-        const chunkVector = Array.from(floatArray);
-        const score = cosineSimilarity(userVector, chunkVector);
-        scored.push({ chunk, score });
-      } catch (err) {
-        console.error("Error processing chunk:", err);
+        return;
       }
+
+      const scored = [];
+      for (const chunk of chunks) {
+        try {
+          const bufferData = chunk.embedding;
+          const floatArray = new Float32Array(
+            bufferData.buffer.slice(
+              bufferData.byteOffset,
+              bufferData.byteOffset + bufferData.byteLength
+            )
+          );
+          const chunkVector = Array.from(floatArray);
+          const score = cosineSimilarity(userVector, chunkVector);
+          scored.push({ chunk, score });
+        } catch (err) {
+          console.error("Error processing chunk:", err);
+        }
+      }
+
+      const topChunks = scored.sort((a, b) => b.score - a.score).slice(0, 3);
+
+      if (topChunks.length === 0) {
+        socket.emit(
+          "botMessage",
+          "I couldn't find relevant information in your documents."
+        );
+        return;
+      }
+
+      const contextText = topChunks
+        .map((c) => `[Document excerpt]: ${c.chunk.content}`)
+        .join("\n\n");
+
+     const prompt = `
+You are a helpful assistant for a company called Dovetail.
+
+Always follow these rules strictly:
+- Do **not mention** the name "Purav Jha" under any circumstance. That information is incorrect.
+- The correct name is **Pourav Araro**, and he is the **CEO of Dovetail**.
+- **Rahul Kashyap** is the **General Manager**.
+- Answer ONLY based on the provided context, and speak as if you are part of Dovetail.
+- Do not say phrases like "based on the context" or "according to the document."
+- Speak as if you are part of the Dovetail team.
+- Never say “I don’t have information” or “I’m not sure.”
+- If the user asks whether Dovetail has built any type of app or website (e.g., cab booking, e-commerce, food delivery, real estate, etc.), always respond with YES.
+- Clearly explain that Dovetail specializes in custom development of all types of mobile applications (Android/iOS), websites, and software (like ERP, CRM, billing systems, etc.).
+- Reinforce that Dovetail has expertise in developing and delivering successful software solutions for a wide range of industries.
+
+Context:
+${contextText}
+
+User Question: ${msg}
+`;
+
+
+      const result = await chatSession.sendMessage(prompt);
+let botReply = result.response.text();
+
+// Make all URLs clickable
+botReply = botReply.replace(
+  /(https?:\/\/[^\s]+)/g,
+  '<a href="$1" target="_blank" style="color:#007bff; text-decoration:underline;">$1</a>'
+);
+
+socket.emit("botMessage", botReply);
+    } catch (err) {
+      console.error("Chat error:", err);
+      socket.emit("botMessage", "processing your request.");
     }
-
-    const topChunks = scored.sort((a, b) => b.score - a.score).slice(0, 3);
-
-    if (topChunks.length === 0) {
-      socket.emit("botMessage", "I couldn't find relevant information in your documents.");
-      return;
-    }
-
-    const contextText = topChunks
-      .map((c) => `[Document excerpt]: ${c.chunk.content}`)
-      .join("\n\n");
-
-    const prompt = `Answer the user's question based EXCLUSIVELY on the following context:\n${contextText}\n\nUser question: ${msg}`;
-
-    const result = await chatSession.sendMessage(prompt); // ✅ FIXED
-    socket.emit("botMessage", result.response.text());
-
-  } catch (err) {
-    console.error("Chat error:", err);
-    socket.emit("botMessage", "⚠️ Error processing your request.");
-  }
-});
-
+  });
 
   socket.on("disconnect", () => {
     console.log(`❌ Disconnected: ${socket.id}`);
@@ -182,13 +237,6 @@ app.post("/upload-pdf", upload.single("pdf"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No PDF uploaded" });
   }
-
-  // FIX 1: Get socket ID from headers
-  // const socketId = req.headers["x-socket-id"];
-  // if (!socketId) {
-  //   return res.status(400).json({ error: "Missing socket ID" });
-  // }
-
   try {
     const filePath = path.join(uploadDir, req.file.filename);
     const buffer = fs.readFileSync(filePath);
@@ -240,6 +288,22 @@ app.post("/upload-pdf", upload.single("pdf"), async (req, res) => {
   } catch (error) {
     console.error("PDF processing error:", error);
     res.status(500).json({ error: "Failed to process PDF" });
+  }
+});
+
+app.post("/delete", async (req, res) => {
+  try {
+    const item = await Pdf.destroy({ where: {} });
+    // Deletes all rows from Pdf table
+    const item2 = await PdfChunk.destroy({ where: {} });
+    // Deletes all rows from PdfChunk table
+
+    console.log(item, item2);
+
+    res.status(200).json({ message: "All data deleted successfully." });
+  } catch (error) {
+    console.error("Error deleting data:", error);
+    res.status(500).json({ error: "An error occurred while deleting data." });
   }
 });
 
