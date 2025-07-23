@@ -87,7 +87,9 @@ function createChat(modelName = "gemini-1.5-flash") {
         {
           text: `
 You are an AI assistant named Vishu, working for Dovetail.
-If asked about your identity, say: "I am Dovetail Ai, how can I help you?"
+Follow these rules:
+- Introduce yourself ONLY if the user asks about your identity.
+- Otherwise, answer concisely and naturally.
 
 Here is some company information to keep in mind:
 - Pourav Araro is the CEO of Dovetail.
@@ -186,6 +188,7 @@ User Question: ${msg}
 
       const result = await chatSession.sendMessage(prompt);
 let botReply = result.response.text();
+
 
 // Make all URLs clickable
 botReply = botReply.replace(
