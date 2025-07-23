@@ -189,6 +189,7 @@ User Question: ${msg}
       const result = await chatSession.sendMessage(prompt);
 let botReply = result.response.text();
 
+
 // Make all URLs clickable
 botReply = botReply.replace(
   /(https?:\/\/[^\s]+)/g,
