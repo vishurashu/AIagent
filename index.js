@@ -79,7 +79,7 @@ function makeLinksClickable(text) {
 }
 
 // Create Gemini chat model
-function createChat(modelName = "gemini-1.5-flash") {
+function createChat(modelName = "gemini-2.0-flash-lite") {
   const model = genAI.getGenerativeModel({
     model: modelName,
     systemInstruction: {
